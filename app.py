@@ -20,7 +20,7 @@ st.title("Chatea con tus documentos")
 
 
 @st.cache_resource(ttl="1h")
-def configure_retriever(files):
+def configure_retriever(files, api_key):
     docs = []
     temp_dir = tempfile.TemporaryDirectory()
 
@@ -38,7 +38,7 @@ def configure_retriever(files):
     print("Splits: ", splits)
     print("Creando embeddings...")
 
-    embeddings = OpenAIEmbeddings()
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
     vectordb = FAISS.from_documents(splits, embeddings)
 
     return vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
@@ -79,6 +79,7 @@ class PrintRetrievalHandler(BaseCallbackHandler):
 
 def main():
     openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+    
     if not openai_api_key:
         st.info("Por favor, introduce tu API Key de OpenAI.")
         st.stop()
@@ -90,7 +91,7 @@ def main():
         st.info("Por favor sube un documento para continuar.")
         st.stop()
 
-    retriever = configure_retriever(files=uploaded_files)
+    retriever = configure_retriever(files=uploaded_files, api_key=openai_api_key)
 
     msgs = StreamlitChatMessageHistory()
     memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
