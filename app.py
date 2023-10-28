@@ -1,48 +1,19 @@
 import os
-import tempfile
 
 import streamlit as st
+from dotenv import load_dotenv
 
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import PyPDFLoader
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.memory import ConversationBufferMemory, StreamlitChatMessageHistory
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores.faiss import FAISS
-from dotenv import load_dotenv
 
 from callback import PrintRetrievalHandler, StreamHandler
+from config import configure_retriever
 
 load_dotenv()
 
 st.set_page_config(page_title="Chatea con tus documentos", page_icon=":books:")
 st.title("Chatea con tus documentos")
-
-
-@st.cache_resource(ttl="1h")
-def configure_retriever(files, api_key):
-    docs = []
-    temp_dir = tempfile.TemporaryDirectory()
-
-    for file in files:
-        temp_filepath = os.path.join(temp_dir.name, file.name)
-        with open(temp_filepath, "wb") as f:
-            f.write(file.getvalue())
-
-        loader = PyPDFLoader(temp_filepath)
-        docs.extend(loader.load())
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-    splits = text_splitter.split_documents(docs)
-
-    print("Creando embeddings...")
-
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-    vectordb = FAISS.from_documents(splits, embeddings)
-
-    return vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-
 
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
@@ -58,7 +29,7 @@ if not openai_api_key:
     st.stop()
 
 uploaded_files = st.sidebar.file_uploader(
-    label="Sube archivos PDF", type=["pdf"], accept_multiple_files=True
+    label="Sube tus archivos", type=["pdf", "docx"], accept_multiple_files=True
 )
 
 if not uploaded_files:
