@@ -3,7 +3,6 @@ import tempfile
 
 import streamlit as st
 
-from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import PyPDFLoader
@@ -12,6 +11,8 @@ from langchain.memory import ConversationBufferMemory, StreamlitChatMessageHisto
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores.faiss import FAISS
 from dotenv import load_dotenv
+
+from callback import PrintRetrievalHandler, StreamHandler
 
 load_dotenv()
 
@@ -35,7 +36,6 @@ def configure_retriever(files, api_key):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
 
-    print("Splits: ", splits)
     print("Creando embeddings...")
 
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
@@ -44,80 +44,52 @@ def configure_retriever(files, api_key):
     return vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
 
-class StreamHandler(BaseCallbackHandler):
-    def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
-        self.container = container
-        self.text = initial_text
-        self.run_id_ignore_token = None
+openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
-    def on_llm_start(self, serialized: dict, prompts: list, **kwargs):
-        if prompts[0].startswith("Human"):
-            self.run_id_ignore_token = kwargs.get("run_id")
+selected_model = st.sidebar.selectbox('Escoge el modelo',
+                                      ['gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-4', 'gpt-4-0613', 'gpt-4-32k',
+                                       'gpt-4-32k-0613'],
+                                      key='selected_model')
 
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        if self.run_id_ignore_token == kwargs.get("run_id", False):
-            return
-        self.text += token
-        self.container.markdown(self.text)
+temperature = st.sidebar.slider('Temperatura', min_value=0.1, max_value=2.0, value=0.1, step=0.01)
 
+if not openai_api_key:
+    st.info("Por favor, introduce tu API Key de OpenAI.")
+    st.stop()
 
-class PrintRetrievalHandler(BaseCallbackHandler):
-    def __init__(self, container):
-        self.status = container.status("**Context Retrieval**")
+uploaded_files = st.sidebar.file_uploader(
+    label="Sube archivos PDF", type=["pdf"], accept_multiple_files=True
+)
 
-    def on_retriever_start(self, serialized: dict, query: str, **kwargs):
-        self.status.write(f"**Question:** {query}")
-        self.status.update(label=f"**Context Retrieval:** {query}")
+if not uploaded_files:
+    st.sidebar.info("Al cargar los archivos iniciará el proceso")
+    st.info("Por favor sube un documento para continuar.")
+    st.stop()
 
-    def on_retriever_end(self, documents, **kwargs):
-        for idx, doc in enumerate(documents):
-            source = os.path.basename(doc.metadata["source"])
-            self.status.write(f"**Document {idx} from {source}**")
-            self.status.markdown(doc.page_content)
-        self.status.update(state="complete")
+retriever = configure_retriever(files=uploaded_files, api_key=openai_api_key)
 
+msgs = StreamlitChatMessageHistory()
+memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
 
-def main():
-    openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-    
-    if not openai_api_key:
-        st.info("Por favor, introduce tu API Key de OpenAI.")
-        st.stop()
+llm = ChatOpenAI(
+    model_name=selected_model, openai_api_key=openai_api_key, temperature=temperature, streaming=True
+)
 
-    uploaded_files = st.sidebar.file_uploader(
-        label="Sube archivos PDF", type=["pdf"], accept_multiple_files=True
-    )
-    if not uploaded_files:
-        st.info("Por favor sube un documento para continuar.")
-        st.stop()
+qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever=retriever, memory=memory)
 
-    retriever = configure_retriever(files=uploaded_files, api_key=openai_api_key)
+if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
+    msgs.clear()
+    msgs.add_ai_message("En qué puedo ayudarte?")
 
-    msgs = StreamlitChatMessageHistory()
-    memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
+avatars = {"human": "user", "ai": "assistant"}
 
-    llm = ChatOpenAI(
-        model_name="gpt-3.5-turbo", openai_api_key=openai_api_key, temperature=0.5, streaming=True
-    )
-    qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever=retriever, memory=memory)
+for msg in msgs.messages:
+    st.chat_message(avatars[msg.type]).write(msg.content)
 
-    if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
-        msgs.clear()
-        msgs.add_ai_message("En qué puedo ayudarte?")
+if user_query := st.chat_input(placeholder="Escribe tu pregunta aquí"):
+    st.chat_message("user").write(user_query)
 
-    avatars = {"human": "user", "ai": "assistant"}
-
-    for msg in msgs.messages:
-        st.chat_message(avatars[msg.type]).write(msg.content)
-
-    if user_query := st.chat_input(placeholder="Escribe tu pregunta aquí"):
-        st.chat_message("user").write(user_query)
-
-        with st.chat_message("assistant"):
-            retrieval_handler = PrintRetrievalHandler(st.container())
-            stream_handler = StreamHandler(st.empty())
-            response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-
-
-if __name__ == "__main__":
-    main()
+    with st.chat_message("assistant"):
+        retrieval_handler = PrintRetrievalHandler(st.container())
+        stream_handler = StreamHandler(st.empty())
+        response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
