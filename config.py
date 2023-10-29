@@ -8,6 +8,8 @@ from langchain.vectorstores.faiss import FAISS
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain.embeddings import OpenAIEmbeddings
 
+from utils import file_formats_dataframe
+
 
 @st.cache_resource(ttl="1h")
 def configure_retriever(files, api_key):
@@ -32,9 +34,7 @@ def configure_retriever(files, api_key):
             loader = PyPDFLoader(temp_filepath)
             docs.extend(loader.load())
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500, chunk_overlap=200
-    )
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
 
     print("Creando embeddings...")
@@ -42,6 +42,17 @@ def configure_retriever(files, api_key):
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
     vectordb = FAISS.from_documents(splits, embeddings)
 
-    return vectordb.as_retriever(
-        search_type="similarity", search_kwargs={"k": 4}
-    )
+    return vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+
+
+@st.cache_data(ttl="1h")
+def load_data(uploaded_file):
+    try:
+        ext = os.path.splitext(uploaded_file.name)[1][1:].lower()
+    except Exception as e:  # noqa
+        ext = uploaded_file.split(".")[-1]
+    if ext in file_formats_dataframe:
+        return file_formats_dataframe[ext](uploaded_file)
+    else:
+        st.error(f"Formato incorrecto: {ext}")
+        return None
