@@ -4,7 +4,9 @@ from langchain.callbacks.base import BaseCallbackHandler
 
 
 class StreamHandler(BaseCallbackHandler):
-    def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
+    def __init__(
+        self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""
+    ):
         self.container = container
         self.text = initial_text
         self.run_id_ignore_token = None

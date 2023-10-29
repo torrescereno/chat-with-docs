@@ -32,7 +32,9 @@ def configure_retriever(files, api_key):
             loader = PyPDFLoader(temp_filepath)
             docs.extend(loader.load())
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1500, chunk_overlap=200
+    )
     splits = text_splitter.split_documents(docs)
 
     print("Creando embeddings...")
@@ -40,4 +42,6 @@ def configure_retriever(files, api_key):
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
     vectordb = FAISS.from_documents(splits, embeddings)
 
-    return vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+    return vectordb.as_retriever(
+        search_type="similarity", search_kwargs={"k": 4}
+    )
