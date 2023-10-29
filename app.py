@@ -1,5 +1,3 @@
-import os
-
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -25,7 +23,8 @@ selected_model = st.sidebar.selectbox('Escoge el modelo',
 temperature = st.sidebar.slider('Temperatura', min_value=0.1, max_value=2.0, value=0.1, step=0.01)
 
 if not openai_api_key:
-    st.info("Por favor, introduce tu API Key de OpenAI.")
+    st.info(
+        "Por favor, introduce tu API Key de OpenAI. Puedes encontrarla [aquí](https://beta.openai.com/account/api-keys).")  # noqa
     st.stop()
 
 uploaded_files = st.sidebar.file_uploader(
