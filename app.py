@@ -21,8 +21,8 @@ from utils import file_formats_dataframe, files_formats_documents, clear_submit
 
 load_dotenv()
 
-st.set_page_config(page_title="Chatea con tus documentos", page_icon=":books:")
-st.title("Chatea con tus documentos")
+st.set_page_config(page_title="Chat constitucional", page_icon=":books:")
+title = st.title("Chatea con tus documentos")
 
 if "submit" not in st.session_state:
     st.session_state["submit"] = False
@@ -54,7 +54,8 @@ temperature = st.sidebar.slider(
     "Temperatura", min_value=0.1, max_value=2.0, value=0.1, step=0.01
 )
 
-type_process = st.sidebar.radio("Tipo de proceso", ["Documentos", "Dataframe"], index=0)
+# type_process = st.sidebar.radio("Tipo de proceso", ["Constitución", "Documentos", "Dataframe"], index=0) # en desarrollo
+type_process = st.sidebar.radio("Tipo de proceso", ["Constitución"], index=0)
 
 # -------------------------------------------------
 
@@ -67,19 +68,51 @@ if not openai_api_key:
 
 # -------------------------------------------------
 
-if type_process == "Documentos":
+if type_process == "Constitución":
+    avatars = {"human": "user", "ai": "assistant"}
 
+    title.title("Chat constitucional")
+
+    # -----------------------------
+    # Obtener los vectores de pinecone
+
+    # -----------------------------
+
+    msgs = StreamlitChatMessageHistory()
+
+    if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
+        msgs.clear()
+        msgs.add_ai_message("En qué puedo ayudarte?")
+
+    for msg in msgs.messages:
+        st.chat_message(avatars[msg.type]).write(msg.content)
+
+    if user_query := st.chat_input(placeholder="Escribe tu pregunta aquí"):
+        st.chat_message("user").write(user_query)
+
+        with st.chat_message("assistant"):
+            retrieval_handler = PrintRetrievalHandler(st.container())
+            stream_handler = StreamHandler(st.empty())
+            # response = qa_chain.run(
+            #     user_query, callbacks=[retrieval_handler, stream_handler]
+            # )
+
+
+if type_process == "Documentos":
     uploaded_files = st.sidebar.file_uploader(
         label="Sube tus archivos", type=files_formats_documents, accept_multiple_files=True
     )
 
     if not uploaded_files:
-        st.info("Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso")
+        st.info(
+            "Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso"
+        )
         st.stop()
 
     retriever = configure_retriever(files=uploaded_files, api_key=openai_api_key)
 
     msgs = StreamlitChatMessageHistory()
+
     memory = ConversationBufferMemory(
         memory_key="chat_history", chat_memory=msgs, return_messages=True
     )
@@ -91,9 +124,8 @@ if type_process == "Documentos":
         streaming=True,
     )
 
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm, retriever=retriever, memory=memory
-    )
+    # por aca pasamos el template
+    qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever=retriever, memory=memory)
 
     if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
         msgs.clear()
@@ -110,12 +142,9 @@ if type_process == "Documentos":
         with st.chat_message("assistant"):
             retrieval_handler = PrintRetrievalHandler(st.container())
             stream_handler = StreamHandler(st.empty())
-            response = qa_chain.run(
-                user_query, callbacks=[retrieval_handler, stream_handler]
-            )
+            response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
 
 if type_process == "Dataframe":
-
     df = None
 
     uploaded_file = st.sidebar.file_uploader(
@@ -125,7 +154,9 @@ if type_process == "Dataframe":
     )
 
     if not uploaded_file:
-        st.info("Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso")
+        st.info(
+            "Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso"
+        )
         st.stop()
 
     if uploaded_file:
