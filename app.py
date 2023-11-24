@@ -85,7 +85,9 @@ if type_process == "Constitución":
 
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     docsearch = Pinecone.from_existing_index(index_name, embeddings)
-    retriever = docsearch.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+    retriever = docsearch.as_retriever(
+        search_type="mmr", search_kwargs={"k": 6, "lambda_mult": 0.50}
+    )
 
     msgs = StreamlitChatMessageHistory()
 
