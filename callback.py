@@ -1,12 +1,9 @@
-import os
 import streamlit as st
 from langchain.callbacks.base import BaseCallbackHandler
 
 
 class StreamHandler(BaseCallbackHandler):
-    def __init__(
-        self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""
-    ):
+    def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
         self.container = container
         self.text = initial_text
         self.run_id_ignore_token = None
@@ -20,19 +17,3 @@ class StreamHandler(BaseCallbackHandler):
             return
         self.text += token
         self.container.markdown(self.text)
-
-
-class PrintRetrievalHandler(BaseCallbackHandler):
-    def __init__(self, container):
-        self.status = container.status("**Context Retrieval**")
-
-    def on_retriever_start(self, serialized: dict, query: str, **kwargs):
-        self.status.write(f"**Question:** {query}")
-        self.status.update(label=f"**Context Retrieval:** {query}")
-
-    def on_retriever_end(self, documents, **kwargs):
-        for idx, doc in enumerate(documents):
-            source = os.path.basename(doc.metadata["source"])
-            self.status.write(f"**Document {idx} from {source}**")
-            self.status.markdown(doc.page_content)
-        self.status.update(state="complete")

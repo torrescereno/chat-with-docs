@@ -1,26 +1,33 @@
 import os
+from operator import itemgetter
+from typing import List, Tuple
 
 import pinecone  # noqa
 import streamlit as st
 
 from dotenv import load_dotenv
 
-# from langchain.agents import AgentType, create_pandas_dataframe_agent
-# from langchain.agents import AgentType
 from langchain.embeddings import OpenAIEmbeddings
+from langchain.prompts import (
+    ChatPromptTemplate,
+    PromptTemplate,
+    MessagesPlaceholder,
+)
+from langchain.schema import format_document, HumanMessage, AIMessage, StrOutputParser
+from langchain.schema.runnable import (
+    RunnableBranch,
+    RunnableLambda,
+    RunnablePassthrough,
+    RunnableMap,
+)
 from langchain.vectorstores.pinecone import Pinecone
-
-# from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
-# from langchain.callbacks import StreamlitCallbackHandler
-from langchain.chains import ConversationalRetrievalChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import (
-    ConversationBufferMemory,
     StreamlitChatMessageHistory,
 )
-from callback import PrintRetrievalHandler, StreamHandler
-# from config import configure_retriever, load_data
-# from utils import file_formats_dataframe, files_formats_documents, clear_submit
+from pydantic import BaseModel, Field
+
+from callback import StreamHandler
 
 load_dotenv()
 
@@ -84,16 +91,81 @@ if type_process == "Constitución":
     index_name = "constitution-idx"
 
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    docsearch = Pinecone.from_existing_index(index_name, embeddings)
-    retriever = docsearch.as_retriever(
-        search_type="mmr", search_kwargs={"k": 6, "lambda_mult": 0.50}
+    vectorstore = Pinecone.from_existing_index(index_name, embeddings)
+
+    # retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+
+    # retriever = vectorstore.as_retriever(
+    #     search_type="mmr", search_kwargs={"k": 5, "fetch_k": 50}
+    # )
+
+    retriever = vectorstore.as_retriever(
+        search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.2}
     )
+
+    # retriever = vectorstore.as_retriever(
+    #     search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.8}
+    # )
 
     msgs = StreamlitChatMessageHistory()
 
-    memory = ConversationBufferMemory(
-        memory_key="chat_history", chat_memory=msgs, return_messages=True
+    _template = """
+    Dada la siguiente conversación y una pregunta de seguimiento, reformula la pregunta de seguimiento para que sea una pregunta independiente, en su idioma original.
+    Chat History:
+    {chat_history}
+    Follow Up Input: {question}
+    Standalone question:"""
+    CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
+
+    template = """
+    Dado el contexto proporcionado, debes responder asumiendo el rol de un experto en derecho constitucional con un inmenso conocimiento y experiencia en el campo.
+
+    En el contexto encontrarás tres documentos los cuales empiezan con INICIO DEL DOCUMENTO seguido del TITULO y finalizan con FIN DEL DOCUMENTO.
+    Debes analizar el contexto y separar bien los contenidos de los documentos y responder las preguntas basado en tu conocimiento y en la conversación previa. no inventes respuestas.
+    
+    Los documentos consisten en:
+    El primer documento es la Constitución actual de la República de chile
+    El segundo documento es la propuesta para el cambio de la constitución del 2022 y tiene como titulo propuesta de nueva constitución 2022
+    El tercer documento es la propuesta para el cambio de la constitución del 2023 y tiene como titulo propuesta de nueva constitución 2023
+
+    <context>
+    {context}
+    </context>"""
+
+    ANSWER_PROMPT = ChatPromptTemplate.from_messages(
+        [
+            ("system", template),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{question}"),
+        ]
     )
+
+    DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template="{page_content}")
+
+    # ----------------
+
+    def _combine_documents(
+        docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"
+    ):
+        doc_strings = [format_document(doc, document_prompt) for doc in docs]
+        return document_separator.join(doc_strings)
+
+    def _format_chat_history(chat_history: List[Tuple[str, str]]) -> List:
+        buffer = []
+        for human, ai in chat_history:
+            buffer.append(HumanMessage(content=human))
+            buffer.append(AIMessage(content=ai))
+        return buffer
+
+    def update_chat_history(messages, user_query, ai_response):
+        messages.add_user_message(user_query)
+        messages.add_ai_message(ai_response)
+
+    class ChatHistory(BaseModel):
+        chat_history: List[Tuple[str, str]] = Field(..., extra={"widget": {"type": "chat"}})
+        question: str
+
+    # ----------------
 
     llm = ChatOpenAI(
         model_name=selected_model,
@@ -102,12 +174,30 @@ if type_process == "Constitución":
         streaming=True,
     )
 
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        memory=memory,
-        chain_type="stuff",
+    _search_query = RunnableBranch(
+        (
+            RunnableLambda(lambda x: bool(x.get("chat_history"))).with_config(
+                run_name="HasChatHistoryCheck"
+            ),
+            RunnablePassthrough.assign(
+                chat_history=lambda x: _format_chat_history(x["chat_history"])
+            )
+            | CONDENSE_QUESTION_PROMPT
+            | llm
+            | StrOutputParser(),
+        ),
+        RunnableLambda(itemgetter("question")),
     )
+
+    _inputs = RunnableMap(
+        {
+            "question": lambda x: x["question"],
+            "chat_history": lambda x: _format_chat_history(x["chat_history"]),
+            "context": _search_query | retriever | _combine_documents,
+        }
+    ).with_types(input_type=ChatHistory)
+
+    qa_chain = _inputs | ANSWER_PROMPT | llm | StrOutputParser()
 
     if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
         msgs.clear()
@@ -120,101 +210,23 @@ if type_process == "Constitución":
         st.chat_message("user").write(user_query)
 
         with st.chat_message("assistant"):
-            retrieval_handler = PrintRetrievalHandler(st.container())
             stream_handler = StreamHandler(st.empty())
-            response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
 
-# if type_process == "Documentos":
-#     uploaded_files = st.sidebar.file_uploader(
-#         label="Sube tus archivos", type=files_formats_documents, accept_multiple_files=True
-#     )
-#
-#     if not uploaded_files:
-#         st.info(
-#             "Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso"
-#         )
-#         st.stop()
-#
-#     retriever = configure_retriever(files=uploaded_files, api_key=openai_api_key)
-#
-#     msgs = StreamlitChatMessageHistory()
-#
-#     memory = ConversationBufferMemory(
-#         memory_key="chat_history", chat_memory=msgs, return_messages=True
-#     )
-#
-#     llm = ChatOpenAI(
-#         model_name=selected_model,
-#         openai_api_key=openai_api_key,
-#         temperature=temperature,
-#         streaming=True,
-#     )
-#
-#     # por aca pasamos el template
-#     qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever=retriever, memory=memory)
-#
-#     if len(msgs.messages) == 0 or st.sidebar.button("Limpiar historial"):
-#         msgs.clear()
-#         msgs.add_ai_message("En qué puedo ayudarte?")
-#
-#     avatars = {"human": "user", "ai": "assistant"}
-#
-#     for msg in msgs.messages:
-#         st.chat_message(avatars[msg.type]).write(msg.content)
-#
-#     if user_query := st.chat_input(placeholder="Escribe tu pregunta aquí"):
-#         st.chat_message("user").write(user_query)
-#
-#         with st.chat_message("assistant"):
-#             retrieval_handler = PrintRetrievalHandler(st.container())
-#             stream_handler = StreamHandler(st.empty())
-#             response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-#
-# if type_process == "Dataframe":
-#     df = None
-#
-#     uploaded_file = st.sidebar.file_uploader(
-#         "Sube tus archivos",
-#         type=list(file_formats_dataframe.keys()),
-#         on_change=clear_submit,
-#     )
-#
-#     if not uploaded_file:
-#         st.info(
-#             "Por favor sube un documento para continuar. Al cargar los archivos iniciará el proceso"
-#         )
-#         st.stop()
-#
-#     if uploaded_file:
-#         df = load_data(uploaded_file)
-#
-#     if "messages" not in st.session_state or st.sidebar.button("Limpiar historial"):
-#         st.session_state["messages"] = [
-#             {"role": "assistant", "content": "En qué puedo ayudarte?"}
-#         ]
-#
-#     for msg in st.session_state.messages:
-#         st.chat_message(msg["role"]).write(msg["content"])
-#
-#     if prompt := st.chat_input(placeholder="Que quieres saber de los datos?"):
-#         st.session_state.messages.append({"role": "user", "content": prompt})
-#         st.chat_message("user").write(prompt)
-#
-#         llm = ChatOpenAI(
-#             temperature=0,
-#             model="gpt-3.5-turbo-0613",
-#             openai_api_key=openai_api_key,
-#             streaming=True,
-#         )
-#
-#         pandas_df_agent = create_pandas_dataframe_agent(
-#             llm=llm,
-#             df=df,
-#             agent_type=AgentType.OPENAI_FUNCTIONS,
-#         )
-#
-#         with st.chat_message("assistant"):
-#             st_cb = StreamlitCallbackHandler(st.container(), expand_new_thoughts=False)
-#             response = pandas_df_agent.run(st.session_state.messages, callbacks=[st_cb])
-#             st.session_state.messages.append({"role": "assistant", "content": response})
-#             st.write(response)
+            chat_history = [(msg.type, msg.content) for msg in msgs.messages]
+            response = ""
+
+            for chunk in qa_chain.stream(
+                input={
+                    "question": user_query,
+                    "chat_history": chat_history,
+                }
+            ):
+                stream_handler.on_llm_new_token(chunk)
+                response += chunk
+
+            update_chat_history(msgs, user_query, response)
+
+
+# Cuantas propuestas de nueva constitución tienes ?
+# Busca y analiza solo en el texto de la propuesta de nueva constitución del 2023 y entrégame los puntos más importantes en materia de educación
+# según tu analisis me puedes indicar entre la propuesta del 2022 y 2023 cual aborda mas temas en materia de seguridad
