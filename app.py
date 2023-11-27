@@ -4,27 +4,19 @@ from typing import List, Tuple
 
 import pinecone  # noqa
 import streamlit as st
-
 from dotenv import load_dotenv
-
+from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.prompts import (
-    ChatPromptTemplate,
-    PromptTemplate,
-    MessagesPlaceholder,
-)
-from langchain.schema import format_document, HumanMessage, AIMessage, StrOutputParser
+from langchain.memory import StreamlitChatMessageHistory
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
+from langchain.schema import AIMessage, HumanMessage, StrOutputParser, format_document
 from langchain.schema.runnable import (
     RunnableBranch,
     RunnableLambda,
-    RunnablePassthrough,
     RunnableMap,
+    RunnablePassthrough,
 )
 from langchain.vectorstores.pinecone import Pinecone
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import (
-    StreamlitChatMessageHistory,
-)
 from pydantic import BaseModel, Field
 
 from callback import StreamHandler
@@ -64,7 +56,7 @@ temperature = st.sidebar.slider(
     "Temperatura", min_value=0.1, max_value=2.0, value=0.1, step=0.01
 )
 
-# type_process = st.sidebar.radio("Tipo de proceso", ["Constitución", "Documentos", "Dataframe"], index=0) # en desarrollo
+
 type_process = st.sidebar.radio("Tipo de proceso", ["Constitución"], index=0)
 
 # -------------------------------------------------
@@ -227,6 +219,6 @@ if type_process == "Constitución":
             update_chat_history(msgs, user_query, response)
 
 
-# Cuantas propuestas de nueva constitución tienes ?
+# ¿Cuántas propuestas de nueva constitución tienes?
 # Busca y analiza solo en el texto de la propuesta de nueva constitución del 2023 y entrégame los puntos más importantes en materia de educación
-# según tu analisis me puedes indicar entre la propuesta del 2022 y 2023 cual aborda mas temas en materia de seguridad
+# según tu análisis me puedes indicar entre la propuesta del 2022 y 2023 cúal aborda más temas en materia de seguridad
