@@ -92,7 +92,7 @@ if type_process == "Constitución":
     # )
 
     retriever = vectorstore.as_retriever(
-        search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.2}
+        search_type="mmr", search_kwargs={"k": 6, "lambda_mult": 0.25}
     )
 
     # retriever = vectorstore.as_retriever(
@@ -142,7 +142,7 @@ if type_process == "Constitución":
         doc_strings = [format_document(doc, document_prompt) for doc in docs]
         return document_separator.join(doc_strings)
 
-    def _format_chat_history(chat_history: List[Tuple[str, str]]) -> List:
+    def _format_chat_history(chat_history: List[Tuple[str, str]]) -> List:  # noqa
         buffer = []
         for human, ai in chat_history:
             buffer.append(HumanMessage(content=human))
