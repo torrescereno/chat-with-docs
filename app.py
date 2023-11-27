@@ -111,15 +111,16 @@ if type_process == "Constitución":
 
     template = """
     Dado el contexto proporcionado, debes responder asumiendo el rol de un experto en derecho constitucional con un inmenso conocimiento y experiencia en el campo.
-
-    En el contexto encontrarás tres documentos los cuales empiezan con INICIO DEL DOCUMENTO seguido del TITULO y finalizan con FIN DEL DOCUMENTO.
-    Debes analizar el contexto y separar bien los contenidos de los documentos y responder las preguntas basado en tu conocimiento y en la conversación previa. no inventes respuestas.
-    
-    Los documentos consisten en:
+        
+    En el contexto encontrarás tres documentos. Los documentos consisten en:
     El primer documento es la Constitución actual de la República de chile
     El segundo documento es la propuesta para el cambio de la constitución del 2022 y tiene como titulo propuesta de nueva constitución 2022
     El tercer documento es la propuesta para el cambio de la constitución del 2023 y tiene como titulo propuesta de nueva constitución 2023
-
+    
+    Debes analizar el contexto y separar bien los contenidos de los documentos y responder las preguntas basado en tu conocimiento y en la conversación previa. no inventes respuestas.
+    
+    Debes realizar la búsqueda y análisis de información en base a los documentos que te estén preguntando. No mezcles información entre documentos.
+    
     <context>
     {context}
     </context>"""
